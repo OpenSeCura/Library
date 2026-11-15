@@ -6,13 +6,14 @@ Usage: fptest.py <e> <f> <ncases> <seed> [xlen]          -- fpuCompute, all sing
        fptest.py fli <e> <f>                             -- the Zfa FLI constant table
 Generates cases, writes a Coq file that evaluates them with vm_compute, runs it, and compares.
 """
-import math, os, random, re, subprocess, sys
+import math, os, random, re, subprocess, sys, tempfile
 from fractions import Fraction
 
-FPU = '/Users/muralivi/work/Cherified/GuruLibrary/Fpu'
+# Paths relative to this script: <Fpu>/Test/fptest.py, Guru at <Fpu>/../../Guru (as in _CoqProject).
+FPU = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Exponent mode of FpCore: true = biased (hardware model), false = unbiased reference model.
 BM = os.environ.get('FPTEST_BM', 'true')
-GURU = '/Users/muralivi/work/Cherified/Guru'
+GURU = os.path.normpath(os.path.join(FPU, '..', '..', 'Guru'))
 
 OPS = dict(ADD=0, SUB=1, MUL=2, DIV=3, SQRT=4, MADD=5, MSUB=6, NMSUB=7, NMADD=8,
            MIN=9, MAX=10, SGNJ=11, SGNJN=12, SGNJX=13,
@@ -441,7 +442,7 @@ def gen_cases(F, n, seed, xlen=64):
 
 
 def run_coq_file(body, tag):
-    d = os.environ.get('FPTEST_DIR', '/Users/muralivi/.gemini/jetski/brain/1be561ad-2ead-4158-8ce0-f241c4b483e2/scratch/coqtest')
+    d = os.environ.get('FPTEST_DIR', os.path.join(tempfile.gettempdir(), 'fptest'))
     os.makedirs(d, exist_ok=True)
     vf = os.path.join(d, f'T_{tag}.v')
     open(vf, 'w').write(body)
@@ -512,7 +513,7 @@ Eval vm_compute in (map runOne cases).
 
 
 def run_coq(e, f, cases, tag):
-    d = os.environ.get('FPTEST_DIR', '/Users/muralivi/.gemini/jetski/brain/1be561ad-2ead-4158-8ce0-f241c4b483e2/scratch/coqtest')
+    d = os.environ.get('FPTEST_DIR', os.path.join(tempfile.gettempdir(), 'fptest'))
     os.makedirs(d, exist_ok=True)
     vf = os.path.join(d, f'T_{tag}.v')
     lst = ';\n  '.join(f'({op}, {rm}, {a}, {b}, {c})' for (op, rm, a, b, c) in cases)
