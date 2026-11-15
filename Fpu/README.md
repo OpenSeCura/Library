@@ -66,7 +66,7 @@ share every definition, so the significand datapath is the same code.  The mode 
 argument of every core and spec definition that depends on it.
 
 `Proof/FpCoreRefProof.v` proves the two modes compute identical results for every format with
-`2 <= e`, `2 <= f`, `4 f + 5 <= 6 * 2^(e-1)` (and `0 <= xlen`, `xlen + 4 <= 7 * 2^(e-1)`), which
+`2 <= f` and `f + 1 < 2^(e-1)` (`FmtOk`; and `0 <= xlen`, `xlen + 4 <= 7 * 2^(e-1)`), which
 covers S, D, H, Q and BF16 with xlen 32 or 64.  The spec takes the mode too, and the pipelined FPU
 refines both versions: `fpu_refines_std` for `fpuSpecMod true`, `fpu_refines_ref` for
 `fpuRefMod := fpuSpecMod false`.

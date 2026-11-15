@@ -923,13 +923,30 @@ End CvtEquiv.
  * THE REFERENCE MODEL (`FpCoreRef.v`)
  * =========================================================================== *)
 
-Theorem fpuComputeRef_equiv : forall e f xlen, 2 <= e -> 2 <= f -> 4 * f + 5 <= 6 * 2 ^ (e - 1) ->
+(* The format condition: `2 <= f` and Flocq's `f + 1 < 2^(e-1)` (precision below emax).  It implies
+ * everything the proofs above use. *)
+Lemma fmt_cond : forall e f, 2 <= f -> f + 1 < 2 ^ (e - 1) -> 2 <= e /\ 4 * f + 5 <= 6 * 2 ^ (e - 1).
+Proof.
+  intros e f Hf Hp.
+  assert (He : 2 <= e).
+  { destruct (Z_lt_le_dec (e - 1) 0) as [Hn | Hn]; [rewrite Z.pow_neg_r in Hp by lia; lia |].
+    destruct (Z_lt_le_dec (e - 1) 1) as [H1 | H1]; [replace (e - 1) with 0 in Hp by lia; cbn in Hp; lia | lia]. }
+  split; [exact He | lia].
+Qed.
+
+Theorem fpuComputeRef_equiv : forall e f xlen, 2 <= f -> f + 1 < 2 ^ (e - 1) ->
   0 <= xlen -> xlen + 4 <= 7 * 2 ^ (e - 1) ->
   forall req, evalLetExpr (fpuComputeRef e f xlen type req) = evalLetExpr (fpuCompute true e f xlen type req).
-Proof. exact fpuCompute_bm_equiv. Qed.
+Proof.
+  intros e f xlen Hf Hp Hx0 Hx1; destruct (fmt_cond e f Hf Hp) as [He Hfe].
+  exact (fpuCompute_bm_equiv e f xlen He Hf Hfe Hx0 Hx1).
+Qed.
 
 Theorem cvtFFRef_equiv : forall e1 f1 e2 f2,
-  2 <= e1 -> 2 <= f1 -> 4 * f1 + 5 <= 6 * 2 ^ (e1 - 1) ->
-  2 <= e2 -> 2 <= f2 -> 4 * f2 + 5 <= 6 * 2 ^ (e2 - 1) ->
+  2 <= f1 -> f1 + 1 < 2 ^ (e1 - 1) -> 2 <= f2 -> f2 + 1 < 2 ^ (e2 - 1) ->
   forall rm a, evalLetExpr (cvtFFRef e1 f1 e2 f2 type rm a) = evalLetExpr (cvtFF true e1 f1 e2 f2 type rm a).
-Proof. exact cvtFF_bm_equiv. Qed.
+Proof.
+  intros e1 f1 e2 f2 Hf1 Hp1 Hf2 Hp2.
+  destruct (fmt_cond e1 f1 Hf1 Hp1) as [He1 Hfe1]; destruct (fmt_cond e2 f2 Hf2 Hp2) as [He2 Hfe2].
+  exact (cvtFF_bm_equiv e1 f1 e2 f2 He1 Hf1 Hfe1 He2 Hf2 Hfe2).
+Qed.

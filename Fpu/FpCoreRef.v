@@ -23,7 +23,7 @@
  * `expUnpack`), so the significand datapath is literally the same code.
  *
  * `Proof/FpCoreRefProof.v` proves that both models compute the same results for every format
- * satisfying `2 <= e`, `2 <= f`, `4 f + 5 <= 6 * 2^(e-1)` (and, for the integer conversions,
+ * satisfying `2 <= f` and `f + 1 < 2^(e-1)` (and, for the integer conversions,
  * `0 <= xlen`, `xlen + 4 <= 7 * 2^(e-1)`): `fpuComputeRef_equiv`, `cvtFFRef_equiv`.
  *)
 

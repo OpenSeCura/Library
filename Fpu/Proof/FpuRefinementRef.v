@@ -35,7 +35,7 @@ Local Open Scope Z_scope.
 
 (* Side conditions of the exponent-mode equivalence for one format. *)
 Definition FmtOk (G : FpFmt) : Prop :=
-  2 <= fmtE G /\ 2 <= fmtF G /\ 4 * fmtF G + 5 <= 6 * 2 ^ (fmtE G - 1).
+  2 <= fmtF G /\ fmtF G + 1 < 2 ^ (fmtE G - 1).
 
 (* All standard formats qualify (and 64-bit `xlen` fits even for binary16). *)
 Lemma FmtOk_std : FmtOk FmtS /\ FmtOk FmtD /\ FmtOk FmtH /\ FmtOk FmtQ /\ FmtOk FmtB.
@@ -56,14 +56,16 @@ Section RefSpec.
   Lemma mainRes_ref : forall op rm a b c x,
     evalLetExpr (mainRes false F xlen narrow type op rm a b c x) = evalLetExpr (mainRes true F xlen narrow type op rm a b c x).
   Proof.
-    intros; destruct HF as [He [Hf Hfe]]; unfold mainRes; cbn [evalLetExpr].
+    intros; destruct HF as [Hf Hp]; destruct (fmt_cond _ _ Hf Hp) as [He Hfe]; unfold mainRes; cbn [evalLetExpr].
     rewrite (fpuCompute_bm_equiv _ _ _ He Hf Hfe Hx0 Hx1); exact eq_refl.
   Qed.
 
   Lemma narrowBlock_ref : forall G toN rm a, FmtOk G ->
     evalLetExpr (narrowBlock false F xlen type G toN rm a) = evalLetExpr (narrowBlock true F xlen type G toN rm a).
   Proof.
-    intros G toN rm a [He2 [Hf2 Hfe2]]; destruct HF as [He [Hf Hfe]]; unfold narrowBlock; cbn [evalLetExpr].
+    intros G toN rm a [Hf2 Hp2]; destruct HF as [Hf Hp].
+    destruct (fmt_cond _ _ Hf Hp) as [He Hfe]; destruct (fmt_cond _ _ Hf2 Hp2) as [He2 Hfe2].
+    unfold narrowBlock; cbn [evalLetExpr].
     rewrite (cvtFF_bm_equiv _ _ _ _ He2 Hf2 Hfe2 He Hf Hfe), (cvtFF_bm_equiv _ _ _ _ He Hf Hfe He2 Hf2 Hfe2).
     exact eq_refl.
   Qed.
