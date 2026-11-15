@@ -40,8 +40,8 @@
  *   flight (`pend = 0` and not `intBusy`).
  * Internal rules: each fu's own rules, and one write-back rule per fu (f results).
  *
- * `fpuImplMod` adds driver rules calling every interface action with arbitrary arguments; it is
- * the standalone module refined against `SpecFpu.fpuSpecMod` (`Proof/FpuRefinement.v`).
+ * A parent calls the interface actions from its own rules and adds `fpuImplRules` to its rule
+ * list.  What it may assume about them is the interface contract of `Proof/FpuContract.v`.
  *)
 
 From Stdlib Require Import String List ZArith Zmod Lia.
@@ -99,7 +99,7 @@ End Ctl.
 
 Section ImplFpu.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
 
@@ -300,19 +300,5 @@ Section ImplFpu.
 
     Definition fpuImplRules : list (Action ty IT (Bit 0)) :=
       fusRules ty IT wbRule ls (fun k a => liftFUs a).
-
-    (* Standalone harness: every interface call with arbitrary arguments. *)
-    Definition fpuDriverRules : list (Action ty IT (Bit 0)) := [
-      ( Random pkt : PktK ; Random x : Bit xlen ; Act (fpuIssue pkt x) ; Retv ) ;
-      ( Act fpuIntResp ; Retv ) ;
-      ( Random rd : Bit FprIdxSz ; Act (fpuReserve rd) ; Retv ) ;
-      ( Random rd : Bit FprIdxSz ; Random v : Bit flen ; Act (fpuFill rd v) ; Retv ) ;
-      ( Random i : Bit FprIdxSz ; Random v : Bit flen ; Act (fpuWriteT i v) ; Retv ) ;
-      ( Random v : Bit 3 ; fpuFrmWrite v ) ;
-      ( Random v : Bit 5 ; Act (fpuFflagsWriteT v) ; Retv ) ;
-      ( Random v : Bit 8 ; Act (fpuFcsrWriteT v) ; Retv ) ;
-      ( Random v : Bit 2 ; fpuFsWrite v ) ].
   End Actions.
-
-  Definition fpuImplMod : Mod IT := fun ty => (fpuImplRules ty ++ fpuDriverRules ty)%list.
 End ImplFpu.

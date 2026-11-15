@@ -62,7 +62,7 @@ Definition WithMetaK (SK : Kind) : Kind :=
 
 Section FUs.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
 
@@ -175,7 +175,7 @@ Section FUs.
 
     Definition plInit := withMetaInit SK (pipeInit e f xlen mul_stages mul_bps).
     Definition plStep := withMetaStep SK (pipeStep e f xlen mul_stages mul_bps).
-    Definition plFinish := withMetaFinish SK (FpResK e f xlen) (pipeFinish e f xlen mul_stages mul_bps) resId.
+    Definition plFinish := withMetaFinish SK (FpResK e f xlen) (pipeFinish e f xlen wlen mul_stages mul_bps) resId.
 
     Definition pipeFU : FU := {|
       fuTree    := stagedPipeTree (WithMetaK SK) mul_stages ;

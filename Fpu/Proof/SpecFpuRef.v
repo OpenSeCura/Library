@@ -15,20 +15,17 @@
  *)
 
 (*
- * The pipelined FPU also refines the spec built on the readable reference core
- * (`FpuRefinementRef.v`):
- *
- *   `fpu_refines_ref` : ModSimulationInit (fpuImplMod ... fus) (fpuRefMod ...) RelFpu _
- *
- * `fpuRefMod` (`fpuSpecMod` with `bm = false`) computes every result with `FpCoreRef` (unbiased exponents).  Its
- * results equal the biased ones (`FpCoreRefProof.v`), which is the only hypothesis
- * (`H_bm`) of the generic refinement `fpu_refines`.  The formats must satisfy the side conditions
- * of the equivalence (`FmtOk`; all standard formats do).
+ * The spec on the readable reference core (`bm = false`, `FpCoreRef`, unbiased exponents)
+ * computes the same results as the spec on the biased core (`execResOf_ref`, from
+ * `FpCoreRefProof.v`).  This is the hypothesis `H_bm` of the interface contract
+ * (`FpuContract.v`); `fpu_contract_ref` uses it to state the contract against the reference
+ * spec.  The formats must satisfy the side conditions of the equivalence (`FmtOk`; all standard
+ * formats do).
  *)
 
 From Stdlib Require Import String List ZArith Zmod Lia Bool.
 From Guru Require Import Primitives Library Syntax Combinators Notations Semantics Composition Theorems.
-From Fpu Require Import FpUtil FpCore FpCoreRef SpecFpu FpuFU ImplFpu RelFpu FpuFUProof FpuRefinement FpCoreRefProof.
+From Fpu Require Import FpUtil FpCore FpCoreRef SpecFpu FpCoreRefProof.
 
 Import ListNotations.
 Local Open Scope Z_scope.
@@ -46,7 +43,7 @@ Proof. intros G HG; repeat (destruct HG as [<- | HG]; [vm_compute; discriminate 
 
 Section RefSpec.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Variable narrow : list FpFmt.
   Hypothesis HF : FmtOk F.
   Hypothesis Hx0 : 0 <= xlen.
@@ -54,10 +51,10 @@ Section RefSpec.
   Hypothesis HN : Forall FmtOk narrow.
 
   Lemma mainRes_ref : forall op rm a b c x,
-    evalLetExpr (mainRes false F xlen narrow type op rm a b c x) = evalLetExpr (mainRes true F xlen narrow type op rm a b c x).
+    evalLetExpr (mainRes false F xlen wlen narrow type op rm a b c x) = evalLetExpr (mainRes true F xlen wlen narrow type op rm a b c x).
   Proof.
     intros; destruct HF as [Hf Hp]; destruct (fmt_cond _ _ Hf Hp) as [He Hfe]; unfold mainRes; cbn [evalLetExpr].
-    rewrite (fpuCompute_bm_equiv _ _ _ He Hf Hfe Hx0 Hx1); exact eq_refl.
+    rewrite (fpuCompute_bm_equiv _ _ _ _ He Hf Hfe Hx0 Hx1); exact eq_refl.
   Qed.
 
   Lemma narrowBlock_ref : forall G toN rm a, FmtOk G ->
@@ -80,23 +77,9 @@ Section RefSpec.
   Qed.
 
   Lemma execResOf_ref : forall pkt rm a b c x,
-    execResOf false F xlen narrow pkt rm a b c x = execResOf true F xlen narrow pkt rm a b c x.
+    execResOf false F xlen wlen narrow pkt rm a b c x = execResOf true F xlen wlen narrow pkt rm a b c x.
   Proof.
     intros; unfold execResOf, execCompute; cbn [evalLetExpr].
     rewrite mainRes_ref, (narrowSel_ref narrow) by exact HN; exact eq_refl.
-  Qed.
-
-  Variable ms bps : nat.
-  Hypothesis H_cfg : PipeCfgOk F ms bps.
-
-  Local Abbreviation lpsStd := (fpuFUsP F xlen narrow ms bps).
-
-  Theorem fpu_refines_ref : forall env1 env2,
-    ModSimulationInit env1 env2 (fpuImplMod F xlen narrow (map (fuL F xlen narrow) lpsStd)) (fpuRefMod F xlen narrow)
-      (RelFpu F xlen narrow lpsStd) (rel_init F xlen narrow lpsStd (fpuFUsP_ok F xlen narrow ms bps H_cfg)).
-  Proof.
-    intros env1 env2.
-    exact (fpu_refines false F xlen narrow execResOf_ref lpsStd (fpuFUsP_ok F xlen narrow ms bps H_cfg)
-             (fpuFUsP_wf F xlen narrow ms bps) env1 env2).
   Qed.
 End RefSpec.

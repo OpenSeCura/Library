@@ -69,7 +69,7 @@ Proof. intros; apply iff_refl. Qed.
 
 Section SpecLemmas.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
   Variable bm : bool.
@@ -138,8 +138,8 @@ Section SpecLemmas.
   Proof. intros; apply evalActionPropGen_archWriteFs. Qed.
 
   Lemma evalActionPropGen_fpuExec : forall (pkt : type (FpuPktK narrow)) (x : bits xlen) (s : ArchSt flen) P,
-    evalActionPropGen env (fpuExec bm F xlen narrow type pkt x) s P <->
-    P (execSem bm F xlen narrow s pkt x) ((execRes bm F xlen narrow s pkt x) @% "xres").
+    evalActionPropGen env (fpuExec bm F xlen wlen narrow type pkt x) s P <->
+    P (execSem bm F xlen wlen narrow s pkt x) ((execRes bm F xlen wlen narrow s pkt x) @% "xres").
   Proof.
     (* Head-position rewrites only: `cbn` here makes the kernel re-check expensive. *)
     intros pkt x s P; unfold fpuExec.
@@ -151,13 +151,13 @@ Section SpecLemmas.
     rewrite evp_LetAction, evalActionPropGen_toAction; cbv beta.
     unfold execSem, execRes, applyRes.
     match goal with
-    | |- context [evalLetExpr (execCompute ?bmv ?fF ?xl ?fn type pkt ?rm ?a ?b ?c x)] =>
-        replace (evalLetExpr (execCompute bmv fF xl fn type pkt rm a b c x)) with
-          (execResOf bm F xlen narrow pkt (rmOf pkt (archFrm flen s)) (archFpr flen s (pktRs1 pkt))
+    | |- context [evalLetExpr (execCompute ?bmv ?fF ?xl ?wl ?fn type pkt ?rm ?a ?b ?c x)] =>
+        replace (evalLetExpr (execCompute bmv fF xl wl fn type pkt rm a b c x)) with
+          (execResOf bm F xlen wlen narrow pkt (rmOf pkt (archFrm flen s)) (archFpr flen s (pktRs1 pkt))
                      (archFpr flen s (pktRs2 pkt)) (archFpr flen s (pktRs3 pkt)) x)
           by (unfold execResOf; f_equal)
     end.
-    set (r := execResOf bm F xlen narrow pkt _ _ _ _ x).
+    set (r := execResOf bm F xlen wlen narrow pkt _ _ _ _ x).
     rewrite evp_IfElse.
     change (evalExpr (##r`"writesF")) with (r @% "writesF").
     clearbody r.

@@ -454,6 +454,9 @@ def run_coq_file(body, tag):
     return out.stdout
 
 
+# RISC-V W / WU integer width (the core's `wlen` parameter); `ref_int` models RISC-V.
+WLEN = 32
+
 def run_coq3(e, f, xlen, cases, tag):
     lst = ';\n  '.join(f'({FAM[DEC[op][0]]}, {DEC[op][1]}, {rm}, {a}, {b}, {c}, {x})'
                         for (op, rm, a, b, c, x) in cases)
@@ -476,7 +479,7 @@ Definition runOne (t : Z * Z * Z * Z * Z * Z * Z) : Z * Z * Z :=
   let '(fam, o, rm, a, b, c, x) := t in
   let req : type (FpReqK {e} {f} {xlen}) :=
     (mkOp fam o ,, (Zmod.of_Z _ rm ,, (Zmod.of_Z _ a ,, (Zmod.of_Z _ b ,, (Zmod.of_Z _ c ,, (Zmod.of_Z _ x ,, tt)))))) in
-  let out := evalLetExpr (fpuCompute {BM} {e} {f} {xlen} type req) in
+  let out := evalLetExpr (fpuCompute {BM} {e} {f} {xlen} {WLEN} type req) in
   (Zmod.unsigned (out @% "res"), Zmod.unsigned (out @% "xres"), Zmod.unsigned (out @% "flags")).
 
 Definition cases : list (Z * Z * Z * Z * Z * Z * Z) := [

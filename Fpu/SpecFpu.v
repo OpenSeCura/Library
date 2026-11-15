@@ -126,7 +126,7 @@ Section SpecFpu.
    * (`FpCoreRef.v`); the two compute the same results (`Proof/FpCoreRefProof.v`). *)
   Variable bm : bool.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
 
@@ -207,7 +207,7 @@ Section SpecFpu.
       LETE od  : FpOpDK <- decodeOp op ;
       LetE req : FpReqK (fmtE F) (fmtF F) xlen <-
         STRUCT { "op" ::= #od ; "rm" ::= #rm ; "a" ::= #a ; "b" ::= #b ; "c" ::= #c ; "x" ::= #x } ;
-      LETE o   : FpResK (fmtE F) (fmtF F) xlen <- fpuCompute bm (fmtE F) (fmtF F) xlen ty req ;
+      LETE o   : FpResK (fmtE F) (fmtF F) xlen <- fpuCompute bm (fmtE F) (fmtF F) xlen wlen ty req ;
       RetE (STRUCT {
         "res"     ::= ##o`"res" ;
         "xres"    ::= ##o`"xres" ;
@@ -361,21 +361,7 @@ Section SpecFpu.
     Definition fcsrOf (s : St) : bits 8 :=
       evalExpr (Concat (Var type (Bit 3) (archFrm flen s)) (Var type (Bit 5) (archFflags flen s))).
   End Semantics.
-
-  (* Standalone spec module: any sequence of state-changing calls with arbitrary arguments. *)
-  Definition fpuSpecRules (ty : Kind -> Type) : list (Action ty AT (Bit 0)) := [
-    ( Random pkt : PktK ; Random x : Bit xlen ; Act (fpuExec ty pkt x) ; Retv ) ;
-    ( Random i : Bit FprIdxSz ; Random v : Bit flen ; fpuWrite ty (#i) (#v) ) ;
-    ( Random v : Bit 3 ; frmWrite ty (#v) ) ;
-    ( Random v : Bit 5 ; fflagsWrite ty (#v) ) ;
-    ( Random v : Bit 8 ; fcsrWrite ty (#v) ) ;
-    ( Random v : Bit 2 ; fsWrite ty (#v) ) ].
-
-  Definition fpuSpecMod : Mod AT := fun ty => fpuSpecRules ty.
 End SpecFpu.
-
-(* The spec built on the readable reference core (`FpCoreRef.v`, unbiased exponents). *)
-Definition fpuRefMod := fpuSpecMod false.
 
 Arguments pktRs1 {narrow} pkt.
 Arguments pktRs2 {narrow} pkt.

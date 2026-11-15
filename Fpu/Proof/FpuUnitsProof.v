@@ -44,7 +44,7 @@ Local Open Scope guru_scope.
  * =========================================================================== *)
 
 Section SqrtProof.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
 
   Lemma sqrtIter_succ_r : forall n s,
     evalLetExpr (sqrtIter e f type (S n) s) =
@@ -80,7 +80,7 @@ End SqrtProof.
  * =========================================================================== *)
 
 Section PipeProof.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
   Variable mul_stages mul_bps : nat.
 
   Local Abbreviation mw := (mul_stages * mul_bps)%nat.
@@ -88,7 +88,7 @@ Section PipeProof.
   Local Abbreviation SK := (PipeStateK e f xlen mw).
   Local Abbreviation init := (pipeInit e f xlen mul_stages mul_bps).
   Local Abbreviation step := (pipeStep e f xlen mul_stages mul_bps).
-  Local Abbreviation finish := (pipeFinish e f xlen mul_stages mul_bps).
+  Local Abbreviation finish := (pipeFinish e f xlen wlen mul_stages mul_bps).
 
   Hypothesis H_mw_pos : (0 < mw)%nat.
   Hypothesis H_f : 0 <= f.
@@ -119,22 +119,22 @@ Section PipeProof.
 
   Lemma pipeFinish_eval : forall info sh ext acc,
     evalLetExpr (finish type (info ,, (sh ,, (ext ,, (acc ,, tt))))) =
-    evalLetExpr (pipeFinishCore true e f xlen type info
+    evalLetExpr (pipeFinishCore true e f xlen wlen type info
                    (evalExpr (trunc (dm + dm) (2 * f + 2) (Var type (Bit (dm + dm)) acc)))).
   Proof.
     intros; unfold pipeFinish; cbn [evalLetExpr].
-    apply f_equal; apply (f_equal2 (pipeFinishCore true e f xlen type)); [timeout 20 reflexivity |].
+    apply f_equal; apply (f_equal2 (pipeFinishCore true e f xlen wlen type)); [timeout 20 reflexivity |].
     apply evalExpr_trunc_congr; reflexivity.
   Qed.
 
   Lemma pipeSpec_eval : forall req,
     let info := evalLetExpr (pipeInfoOf true e f xlen type req) in
-    evalLetExpr (pipeSpec true e f xlen type req) =
-    evalLetExpr (pipeFinishCore true e f xlen type info
+    evalLetExpr (pipeSpec true e f xlen wlen type req) =
+    evalLetExpr (pipeFinishCore true e f xlen wlen type info
                    (evalExpr (sigProduct f type (info @% "ua" @% "sig") (info @% "ub" @% "sig")))).
   Proof.
     intros req info; unfold pipeSpec; cbn [evalLetExpr].
-    apply f_equal; apply (f_equal2 (pipeFinishCore true e f xlen type)); timeout 20 reflexivity.
+    apply f_equal; apply (f_equal2 (pipeFinishCore true e f xlen wlen type)); timeout 20 reflexivity.
   Qed.
 
   Lemma StageValAt_pipe : forall k req,
@@ -189,7 +189,7 @@ Section PipeProof.
 
   Theorem Pipe_StageValAt_spec : forall req,
     evalLetExpr (finish type (StageValAt init step mul_stages req)) =
-    evalLetExpr (pipeSpec true e f xlen type req).
+    evalLetExpr (pipeSpec true e f xlen wlen type req).
   Proof.
     intros req.
     rewrite StageValAt_pipe, pipeFinish_eval, pipeSpec_eval.
@@ -220,7 +220,7 @@ Qed.
 
 Section DivProof.
   Local Open Scope Z_scope.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
   Hypothesis H_f : 0 <= f.
 
   Local Abbreviation init := (divInit e f xlen).
@@ -451,13 +451,13 @@ End DivProof.
  * 5. THE SINGLE-FORMAT COMPUTE FUNCTION DISPATCHES TO THE THREE UNITS
  * =========================================================================== *)
 
-Lemma fpuCompute_dispatch : forall (e f xlen : Z) (req : type (FpReqK e f xlen)),
-  evalLetExpr (fpuCompute true e f xlen type req) =
+Lemma fpuCompute_dispatch : forall (e f xlen wlen : Z) (req : type (FpReqK e f xlen)),
+  evalLetExpr (fpuCompute true e f xlen wlen type req) =
   if req @% "op" @% "div"
   then evalExpr (fpRes e f xlen type (evalLetExpr (divSpec true e f xlen type req)))
   else if req @% "op" @% "sqrt"
   then evalExpr (fpRes e f xlen type (evalLetExpr (sqrtSpec true e f xlen type req)))
-  else evalLetExpr (pipeSpec true e f xlen type req).
+  else evalLetExpr (pipeSpec true e f xlen wlen type req).
 Proof. intros; exact eq_refl. Qed.
 
 (* ===========================================================================
@@ -484,7 +484,7 @@ Proof.
 Qed.
 
 Section PipeUnitInvariants.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
   Variable mul_stages mul_bps : nat.
 
   Local Abbreviation mw := (mul_stages * mul_bps)%nat.
@@ -492,7 +492,7 @@ Section PipeUnitInvariants.
   Local Abbreviation IK := (FpReqK e f xlen).
   Local Abbreviation init := (pipeInit e f xlen mul_stages mul_bps).
   Local Abbreviation step := (pipeStep e f xlen mul_stages mul_bps).
-  Local Abbreviation finish := (pipeFinish e f xlen mul_stages mul_bps).
+  Local Abbreviation finish := (pipeFinish e f xlen wlen mul_stages mul_bps).
 
   Definition FpPipe_StageAtStep (inp : type IK) (k : nat) (fs : TreeState ElemState (fifoTree 1 SK)) : Prop :=
     PipeStageAtStep IK SK init step inp k fs.
@@ -526,13 +526,13 @@ Section PipeUnitInvariants.
            (s s' : TreeState ElemState (fpPipeTree e f xlen mul_stages mul_bps)) optOut,
       (0 < mw)%nat -> 0 <= f -> f + 1 <= dataLen mw ->
       FpPipe_StageAtStep inp mul_stages (stagedLastFifo SK mul_stages s) ->
-      SemAction env (fpPipeFirst e f xlen mul_stages mul_bps type) s s' optOut ->
+      SemAction env (fpPipeFirst e f xlen wlen mul_stages mul_bps type) s s' optOut ->
       s' = s /\
-      optOut = evalExpr (mkSome (Const type (FpResK e f xlen) (evalLetExpr (pipeSpec true e f xlen type inp)))).
+      optOut = evalExpr (mkSome (Const type (FpResK e f xlen) (evalLetExpr (pipeSpec true e f xlen wlen type inp)))).
   Proof.
     intros env inp s s' optOut Hmw Hf Hfit Hstage Hsem.
-    exact (Pipe_First_Spec IK SK (FpResK e f xlen) mul_stages init step finish (pipeSpec true e f xlen)
-             inp s s' optOut (Pipe_StageValAt_spec e f xlen mul_stages mul_bps Hmw Hf Hfit inp) Hstage Hsem).
+    exact (Pipe_First_Spec IK SK (FpResK e f xlen) mul_stages init step finish (pipeSpec true e f xlen wlen)
+             inp s s' optOut (Pipe_StageValAt_spec e f xlen wlen mul_stages mul_bps Hmw Hf Hfit inp) Hstage Hsem).
   Qed.
 
   Theorem FpPipe_Deq_LastStage :
@@ -548,7 +548,7 @@ Section PipeUnitInvariants.
 End PipeUnitInvariants.
 
 Section DivUnitInvariants.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
 
   Local Abbreviation SK := (DivStateK e f).
   Local Abbreviation IK := (FpReqK e f xlen).
@@ -617,7 +617,7 @@ Section DivUnitInvariants.
 End DivUnitInvariants.
 
 Section SqrtUnitInvariants.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
 
   Local Abbreviation SK := (SqrtStateK e f).
   Local Abbreviation IK := (FpReqK e f xlen).

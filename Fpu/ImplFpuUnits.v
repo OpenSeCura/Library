@@ -57,7 +57,7 @@ Definition PipeStateK (e f xlen : Z) (mw : nat) : Kind :=
   }.
 
 Section PipeUnit.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
   Variable mul_stages mul_bps : nat.
 
   Local Abbreviation mw := (mul_stages * mul_bps)%nat.
@@ -93,7 +93,7 @@ Section PipeUnit.
   Definition pipeFinish (ty : Kind -> Type) (st : ty SK) : LetExpr ty (FpResK e f xlen) :=
     LetE info : PipeInfoK e f xlen <- ##st`"info" ;
     LetE prod : Bit (2 * f + 2)    <- trunc (dm + dm) (2 * f + 2) (##st`"mulAcc") ;
-    pipeFinishCore true e f xlen ty info prod.
+    pipeFinishCore true e f xlen wlen ty info prod.
 
   Definition fpPipeTree : Tree Elem := stagedPipeTree SK mul_stages.
 
@@ -124,7 +124,7 @@ Definition DivStateK (e f : Z) : Kind :=
   }.
 
 Section DivUnit.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
 
   Local Abbreviation SK := (DivStateK e f).
 
@@ -188,7 +188,7 @@ End DivUnit.
  * =========================================================================== *)
 
 Section SqrtUnit.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
 
   Local Abbreviation SK := (SqrtStateK e f).
   Local Abbreviation nSteps := (sqrtSteps f).

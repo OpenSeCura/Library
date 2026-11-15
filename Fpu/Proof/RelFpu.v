@@ -15,29 +15,27 @@
  *)
 
 (*
- * The refinement relation between the pipelined FPU and the atomic FPU (`RelFpu.v`).
+ * The relation behind the FPU interface contract (`RelFpu.v`; the contract is `FpuContract.v`).
  *
- * Method (`Agents/REFINEMENT_TECHNIQUE.md`): the spec lags the impl.  The ghost `g` lists, in
- * program (issue) order, every operation the impl has accepted but the spec has not committed:
+ * The ghost `g` lists, in program (issue) order, the operations the impl has accepted since a
+ * base spec state `sigma`:
  *   `EExec x i done`   an FP instruction with fu input `x` (operands read at issue), fu `i`;
+ *                      `done` once its result has left the fu;
  *   `ELoad rd ov`      an FP load to `rd` (`ov = None` until the data arrives);
- *   `EWrite rd v`, `EFrm v`, `EFflags v`, `EFcsr v`, `EFs v`   writes (done at once).
- * `entrySem e s` is the spec effect of `e`; `foldSem g s` replays the whole ghost.
+ *   `EWrite rd v`, `EFrm v`, `EFflags v`, `EFcsr v`, `EFs v`   writes.
+ * `entrySem e s` is the spec effect of `e`; `tau = foldSem g sigma` replays the whole ghost: it
+ * is the spec state with every accepted operation applied.
  *
- * `RelFpuG g S sigma` (impl state `S`, spec state `sigma`): with `tau = foldSem g sigma`,
+ * `RelC g A p lp ib Ls sigma` (impl arch state `A`, scoreboard `p` / `lp` / `ib`, fus `Ls`):
  * - every recorded operand is what the spec would read at that point (`Cons`);
  * - impl registers that are not busy equal `tau`'s; `frm`, `fs` equal `tau`'s; `fflags` of `tau`
  *   is the impl's ORed with the flags of the pending operations;
  * - `pend` / `lpend` / `intBusy` are exactly the pending FP writers / loads / integer operations;
  * - fu `i` holds the pending operations routed to it, oldest first;
  * - a pending writer of `r` is followed by no write or read of `r` (`NLT`).
- * `RelFpu S sigma := exists g, RelFpuG g S sigma`.
  *
- * Exported lemmas (for the standalone refinement and for a parent pipeline):
- * - step lemmas for every interface action and internal rule (`rel_*`): they never step the
- *   spec; they extend or update the ghost;
- * - `rel_commit`: a done head entry is committed by the spec effect `entrySem`;
- * - read lemmas: what each read returns, in terms of `tau`.
+ * The preservation lemmas `relC_*` say how each interface action and internal rule extends or
+ * updates the ghost.
  *)
 
 From Stdlib Require Import String List ZArith Zmod Zmod.Bits Lia Bool Arith.
@@ -58,7 +56,7 @@ Proof. intros m a b H; destruct (Zmod.eqb_spec a b); [contradiction | reflexivit
 
 Section RelFpu.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
 
@@ -78,7 +76,7 @@ Section RelFpu.
   | EFcsr (v : bits 8)
   | EFs (v : bits 2).
 
-  Definition resOf (x : type InK) : type (FpuResK F xlen) := (fuSpec F xlen narrow x) @% "res".
+  Definition resOf (x : type InK) : type (FpuResK F xlen) := (fuSpec F xlen wlen narrow x) @% "res".
   Definition rdOf (x : type InK) : bits FprIdxSz := pktRd (x @% "pkt").
   Definition wfX (x : type InK) : bool := (resOf x) @% "writesF".
 
@@ -107,13 +105,6 @@ Section RelFpu.
     match g with
     | nil => True
     | e :: rest => entryOk s e /\ Cons (entrySem e s) rest
-    end.
-
-  Definition doneE (e : Entry) : bool :=
-    match e with
-    | EExec _ _ d => d
-    | ELoad _ ov => match ov with Some _ => true | None => false end
-    | _ => true
     end.
 
   (* Pending writers, readers. *)
@@ -332,7 +323,6 @@ Section RelFpu.
 
   Variable lps : list (FUP F xlen narrow).
   Local Abbreviation ls := (map (fuL F xlen narrow) lps).
-  Local Abbreviation ImplSt := (TreeState ElemState (implTree F xlen narrow ls)).
   Local Abbreviation LsSt := (TreeState ElemState (fusTree F xlen narrow ls)).
 
   (* FUs accept only operations whose result destination agrees with `wfOf` (true of the
@@ -353,11 +343,6 @@ Section RelFpu.
     r_nlt   : NLT g ;
     r_route : forall x i d, In (EExec x i d) g -> route F xlen narrow lps (x @% "pkt") = Some i
   }.
-
-  Definition RelFpuG (g : list Entry) (S : ImplSt) (sigma : St) : Prop :=
-    exists A p lp ib Ls, S = mkIT F xlen narrow ls A (mkCtl p lp ib) Ls /\ RelC g A p lp ib Ls sigma.
-
-  Definition RelFpu (S : ImplSt) (sigma : St) : Prop := exists g, RelFpuG g S sigma.
 
   (* --- Consequences --- *)
 
@@ -857,242 +842,16 @@ Section RelFpu.
   Qed.
 
   (* ===========================================================================
-   * 7. COMMIT
+   * 7. THE STATE AFTER A WRITE-BACK
    * =========================================================================== *)
 
-  Lemma relC_commit : forall e g A p lp ib Ls sigma,
-    RelC (e :: g) A p lp ib Ls sigma -> doneE e = true ->
-    RelC g A p lp ib Ls (entrySem e sigma).
-  Proof.
-    intros e g A p lp ib Ls sigma H Hd.
-    assert (Hwe : forall r, pendWE e r = false) by (destruct e as [x i [|] | rd [w |] | | | | |]; cbn [pendWE pendWL flagsE isPendInt entryPendIn doneE] in *; congruence).
-    assert (Hwl : forall r, pendWL e r = false) by (destruct e as [x i [|] | rd [w |] | | | | |]; cbn [pendWE pendWL flagsE isPendInt entryPendIn doneE] in *; congruence).
-    assert (Hf : flagsE e = Zmod.zero) by (destruct e as [x i [|] | rd [w |] | | | | |]; cbn [pendWE pendWL flagsE isPendInt entryPendIn doneE] in *; congruence).
-    assert (Hi : isPendInt e = false) by (destruct e as [x i [|] | rd [w |] | | | | |]; cbn [pendWE pendWL flagsE isPendInt entryPendIn doneE] in *; congruence).
-    assert (Hpi : forall j, entryPendIn j e = []) by (destruct e as [x i [|] | rd [w |] | | | | |]; cbn [pendWE pendWL flagsE isPendInt entryPendIn doneE] in *; congruence).
-    constructor.
-    - exact (proj2 (r_cons _ _ _ _ _ _ _ H)).
-    - exact (r_fpr _ _ _ _ _ _ _ H).
-    - exact (r_frm _ _ _ _ _ _ _ H).
-    - exact (r_fs _ _ _ _ _ _ _ H).
-    - change (archFflags flen (foldSem g (entrySem e sigma))) with (archFflags flen (foldSem (e :: g) sigma)).
-      rewrite (r_ff _ _ _ _ _ _ _ H); cbn [pendFlags fold_right]; rewrite Hf, bits_or_0_l; reflexivity.
-    - intros r; rewrite (r_pend _ _ _ _ _ _ _ H); cbn [existsb]; rewrite Hwe; reflexivity.
-    - intros r; rewrite (r_lpend _ _ _ _ _ _ _ H); cbn [existsb]; rewrite Hwl; reflexivity.
-    - rewrite <- (r_ib _ _ _ _ _ _ _ H); cbn [filter]; rewrite Hi; reflexivity.
-    - eapply FUsHold_ext; [| exact (r_fus _ _ _ _ _ _ _ H)]; intros j.
-      change (pendIn (e :: g) j) with (entryPendIn j e ++ pendIn g j); rewrite Hpi; reflexivity.
-    - exact (proj2 (r_nlt _ _ _ _ _ _ _ H)).
-    - intros x i d Hin; exact (r_route _ _ _ _ _ _ _ H x i d (or_intror Hin)).
-  Qed.
-
-  (* ===========================================================================
-   * 8. STEP LEMMAS FOR THE INTERFACE AND THE RULES (spec does not step)
-   * =========================================================================== *)
-
-  Hypothesis H_fus : Forall (FUOkP F xlen narrow) lps.
-  Hypothesis H_wf : FUsWf.
-
-  Local Abbreviation IT := (implTree F xlen narrow ls).
   Local Abbreviation mkS := (mkIT F xlen narrow ls).
 
-  Lemma rel_issue : forall (env : Env IT) g S sigma pkt xv Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuIssue F xlen narrow ls type pkt xv) S Q ->
-    exists S' (ok : bool), Q S' ok /\
-      (ok = false -> S' = S /\ RelFpuG g S sigma) /\
-      (ok = true -> exists i, RelFpuG (g ++ [EExec (inpOf F xlen narrow (foldSem g sigma) pkt xv) i false]) S' sigma).
-  Proof.
-    intros env g S sigma pkt xv Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuIssue_fwd F xlen narrow lps env A p lp ib Ls pkt xv Q (pendIn g) H_fus (r_fus _ _ _ _ _ _ _ H) Hev)
-      as [S' [ok [HQ [Hf Ht]]]].
-    exists S', ok; split; [exact HQ | split].
-    - intros Hok; rewrite (Hf Hok); split; [reflexivity | exists A, p, lp, ib, Ls; split; [reflexivity | exact H]].
-    - intros Hok; destruct (Ht Hok) as [Hsb [i [Ls' [Hr [Hl ->]]]]]; exists i.
-      assert (Hx : inpOf F xlen narrow A pkt xv = inpOf F xlen narrow (foldSem g sigma) pkt xv).
-      { destruct (sbOkF_true _ _ _ _ _ Hsb) as [Hb1 [Hb2 [Hb3 _]]]; unfold inpOf.
-        rewrite (r_frm _ _ _ _ _ _ _ H), (r_fpr _ _ _ _ _ _ _ H _ Hb1), (r_fpr _ _ _ _ _ _ _ H _ Hb2), (r_fpr _ _ _ _ _ _ _ H _ Hb3).
-        reflexivity. }
-      rewrite <- Hx.
-      exists (archSetFs flen A dirtyZ), (if wfOf pkt then bitSetV p (pktRd pkt) else p), lp,
-        (if wfOf pkt then ib else true), Ls'; split; [destruct (wfOf pkt); reflexivity |].
-      exact (relC_issue _ _ _ _ _ _ _ _ _ _ _ H_wf H Hsb Hr Hl).
-  Qed.
-
-  Lemma rel_intResp : forall (env : Env IT) g S sigma Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuIntResp F xlen narrow ls type) S Q ->
-    exists S' (r : type (Option (Bit xlen))), Q S' r /\
-      (r @% "valid" = false -> S' = S /\ RelFpuG g S sigma) /\
-      (r @% "valid" = true -> exists pre post x i, g = pre ++ EExec x i false :: post /\
-         r @% "data" = (resOf x) @% "xres" /\ RelFpuG (pre ++ EExec x i true :: post) S' sigma).
-  Proof.
-    intros env g S sigma Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuIntResp_fwd F xlen narrow lps env A p lp ib Ls Q (pendIn g) H_fus (r_fus _ _ _ _ _ _ _ H) Hev)
-      as [S' [r [HQ [Hf Ht]]]].
-    exists S', r; split; [exact HQ | split].
-    - intros Hv; rewrite (Hf Hv); split; [reflexivity | exists A, p, lp, ib, Ls; split; [reflexivity | exact H]].
-    - intros Hv; destruct (Ht Hv) as [i [x [xs [Ls' [Hx [Hw [Hd [Hl ->]]]]]]]].
-      destruct (relC_intResp _ _ _ _ _ _ _ _ _ _ _ H Hx Hw Hl) as [pre [post [Hg Hrel]]].
-      exists pre, post, x, i; split; [exact Hg | split; [exact Hd |]].
-      eexists _, _, _, _, _; split; [reflexivity | exact Hrel].
-  Qed.
-
   Lemma wbUpdO_eq : forall A p lp ib Ls (o : type (Option (FUOutK F xlen))) x,
-    o @% "data" = fuSpec F xlen narrow x ->
+    o @% "data" = fuSpec F xlen wlen narrow x ->
     wbUpdO F xlen narrow lps (mkS A (mkCtl p lp ib) Ls) o = mkS (wbArch A x) (mkCtl (bitClrV p (rdOf x)) lp ib) Ls.
   Proof.
     intros A p lp ib Ls [d [v []]] x Hd; cbn in Hd; subst d.
     unfold wbUpdO, mkIT, wbArch; cbn [Fst Snd]; rewrite evalExpr_Or2; reflexivity.
-  Qed.
-
-  Lemma rel_rules : forall (env : Env IT) g S sigma r Q,
-    RelFpuG g S sigma -> In r (fpuImplRules F xlen narrow ls type) -> evalActionPropGen env r S Q ->
-    exists S', Q S' Zmod.zero /\ exists g', RelFpuG g' S' sigma.
-  Proof.
-    intros env g S sigma r Q [A [p [lp [ib [Ls [-> H]]]]]] Hin Hev.
-    destruct (implRules_fwd F xlen narrow lps H_fus env r (mkS A (mkCtl p lp ib) Ls) (pendIn g) Q
-                (r_fus _ _ _ _ _ _ _ H) Hin Hev)
-      as [S' [HQ [[t' [-> Ht]] | [o [i [x [xs [t' [Hx [Hd [Hw [-> Ht]]]]]]]]]]]].
-    - eexists; split; [exact HQ |]; exists g, A, p, lp, ib, t'; split; [reflexivity |].
-      exact (relC_fus _ _ _ _ _ _ _ _ H Ht).
-    - eexists; split; [exact HQ |].
-      destruct (relC_wb _ _ _ _ _ _ _ _ _ _ _ H Hx Hw Ht) as [pre [post [_ Hrel]]].
-      exists (pre ++ EExec x i true :: post), (wbArch A x), (bitClrV p (rdOf x)), lp, ib, t'; split; [| exact Hrel].
-      rewrite (wbUpdO_eq A p lp ib Ls o x Hd); reflexivity.
-  Qed.
-
-  Lemma rel_reserve : forall (env : Env IT) g S sigma rd Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuReserve F xlen narrow ls type rd) S Q ->
-    exists S' (ok : bool), Q S' ok /\ RelFpuG (if ok then g ++ [ELoad rd None] else g) S' sigma.
-  Proof.
-    intros env g S sigma rd Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuReserve_fwd F xlen narrow lps env A p lp ib Ls rd Q Hev) as [S' [ok [HQ [Hok ->]]]].
-    eexists _, ok; split; [exact HQ |]; destruct ok.
-    - eexists _, _, _, _, _; split; [reflexivity |]; apply relC_reserve; [exact H |].
-      apply negb_true_iff; rewrite <- Hok; reflexivity.
-    - eexists _, _, _, _, _; split; [reflexivity | exact H].
-  Qed.
-
-  Lemma rel_fill : forall (env : Env IT) g S sigma rd v Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFill F xlen narrow ls type rd v) S Q ->
-    exists S' (ok : bool), Q S' ok /\
-      (ok = false -> RelFpuG g S' sigma) /\
-      (ok = true -> exists pre post, g = pre ++ ELoad rd None :: post /\ RelFpuG (pre ++ ELoad rd (Some v) :: post) S' sigma).
-  Proof.
-    intros env g S sigma rd v Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuFill_fwd F xlen narrow lps env A p lp ib Ls rd v Q Hev) as [S' [ok [HQ [Hok ->]]]].
-    eexists _, ok; split; [exact HQ |]; destruct ok; split; intros Hb; [discriminate Hb | | | discriminate Hb].
-    - destruct (relC_fill _ _ _ _ _ _ _ _ v H (eq_sym Hok)) as [pre [post [Hg Hrel]]].
-      exists pre, post; split; [exact Hg |]; eexists _, _, _, _, _; split; [reflexivity | exact Hrel].
-    - eexists _, _, _, _, _; split; [reflexivity | exact H].
-  Qed.
-
-  Lemma rel_writeT : forall (env : Env IT) g S sigma idx v Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuWriteT F xlen narrow ls type idx v) S Q ->
-    exists S' (ok : bool), Q S' ok /\ RelFpuG (if ok then g ++ [EWrite idx v] else g) S' sigma.
-  Proof.
-    intros env g S sigma idx v Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuWriteT_fwd F xlen narrow lps env A p lp ib Ls idx v Q Hev) as [S' [ok [HQ [Hok ->]]]].
-    eexists _, ok; split; [exact HQ |]; destruct ok.
-    - eexists _, _, _, _, _; split; [reflexivity |]; apply relC_writeT; [exact H |].
-      apply negb_true_iff; rewrite <- Hok; reflexivity.
-    - eexists _, _, _, _, _; split; [reflexivity | exact H].
-  Qed.
-
-  Lemma rel_frmWrite : forall (env : Env IT) g S sigma v Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFrmWrite F xlen narrow ls type v) S Q ->
-    exists S', Q S' Zmod.zero /\ RelFpuG (g ++ [EFrm v]) S' sigma.
-  Proof.
-    intros env g S sigma v Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    apply ev_fpuFrmWrite in Hev; eexists; split; [exact Hev |].
-    eexists _, _, _, _, _; split; [reflexivity | apply relC_frm; exact H].
-  Qed.
-
-  Lemma rel_fsWrite : forall (env : Env IT) g S sigma v Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFsWrite F xlen narrow ls type v) S Q ->
-    exists S', Q S' Zmod.zero /\ RelFpuG (g ++ [EFs v]) S' sigma.
-  Proof.
-    intros env g S sigma v Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    apply ev_fpuFsWrite in Hev; eexists; split; [exact Hev |].
-    eexists _, _, _, _, _; split; [reflexivity | apply relC_fs; exact H].
-  Qed.
-
-  Lemma rel_fflagsWriteT : forall (env : Env IT) g S sigma v Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFflagsWriteT F xlen narrow ls type v) S Q ->
-    exists S' (ok : bool), Q S' ok /\ RelFpuG (if ok then g ++ [EFflags v] else g) S' sigma.
-  Proof.
-    intros env g S sigma v Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuFflagsWriteT_fwd F xlen narrow lps env A p lp ib Ls v Q Hev) as [S' [ok [HQ [Hok ->]]]].
-    eexists _, ok; split; [exact HQ |]; destruct ok.
-    - eexists _, _, _, _, _; split; [reflexivity | apply relC_fflags; [exact H | symmetry; exact Hok]].
-    - eexists _, _, _, _, _; split; [reflexivity | exact H].
-  Qed.
-
-  Lemma rel_fcsrWriteT : forall (env : Env IT) g S sigma v Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFcsrWriteT F xlen narrow ls type v) S Q ->
-    exists S' (ok : bool), Q S' ok /\ RelFpuG (if ok then g ++ [EFcsr v] else g) S' sigma.
-  Proof.
-    intros env g S sigma v Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuFcsrWriteT_fwd F xlen narrow lps env A p lp ib Ls v Q Hev) as [S' [ok [HQ [Hok ->]]]].
-    eexists _, ok; split; [exact HQ |]; destruct ok.
-    - eexists _, _, _, _, _; split; [reflexivity | apply relC_fcsr; [exact H | symmetry; exact Hok]].
-    - eexists _, _, _, _, _; split; [reflexivity | exact H].
-  Qed.
-
-  (* --- Reads: values in terms of the replayed spec state --- *)
-
-  Lemma rel_readT : forall (env : Env IT) g S sigma idx Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuReadT F xlen narrow ls type idx) S Q ->
-    exists r : type (Option (Bit flen)), Q S r /\
-      (r @% "valid" = true -> r @% "data" = archFpr flen (foldSem g sigma) idx).
-  Proof.
-    intros env g S sigma idx Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    destruct (fpuReadT_fwd F xlen narrow lps env A p lp ib Ls idx Q Hev) as [r [HQ [Hd Hv]]].
-    exists r; split; [exact HQ |]; intros Hval; rewrite Hd; apply (r_fpr _ _ _ _ _ _ _ H).
-    rewrite Hval in Hv; apply eq_sym, negb_true_iff in Hv; exact Hv.
-  Qed.
-
-  Lemma rel_fflagsReadT : forall (env : Env IT) g S sigma Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFflagsReadT F xlen narrow ls type) S Q ->
-    exists r : type (Option (Bit 5)), Q S r /\
-      (r @% "valid" = true -> r @% "data" = archFflags flen (foldSem g sigma)).
-  Proof.
-    intros env g S sigma Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    apply fpuFflagsReadT_fwd in Hev; eexists; split; [exact Hev |]; cbn [Fst Snd]; intros Hd.
-    rewrite (r_ff _ _ _ _ _ _ _ H), (drained_pendFlags _ _ _ _ _ _ _ H Hd), bits_or_0_r; reflexivity.
-  Qed.
-
-  Lemma rel_fcsrReadT : forall (env : Env IT) g S sigma Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFcsrReadT F xlen narrow ls type) S Q ->
-    exists r : type (Option (Bit 8)), Q S r /\
-      (r @% "valid" = true -> r @% "data" = fcsrOf F (foldSem g sigma)).
-  Proof.
-    intros env g S sigma Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    apply fpuFcsrReadT_fwd in Hev; eexists; split; [exact Hev |]; cbn [Fst Snd]; intros Hd.
-    unfold fcsrOf; rewrite <- (r_frm _ _ _ _ _ _ _ H), (r_ff _ _ _ _ _ _ _ H), (drained_pendFlags _ _ _ _ _ _ _ H Hd), bits_or_0_r.
-    reflexivity.
-  Qed.
-
-  Lemma rel_frmRead : forall (env : Env IT) g S sigma Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFrmRead F xlen narrow ls type) S Q ->
-    Q S (archFrm flen (foldSem g sigma)).
-  Proof.
-    intros env g S sigma Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    apply ev_fpuFrmRead in Hev; rewrite <- (r_frm _ _ _ _ _ _ _ H); exact Hev.
-  Qed.
-
-  Lemma rel_fsRead : forall (env : Env IT) g S sigma Q,
-    RelFpuG g S sigma -> evalActionPropGen env (fpuFsRead F xlen narrow ls type) S Q ->
-    Q S (archFs flen (foldSem g sigma)).
-  Proof.
-    intros env g S sigma Q [A [p [lp [ib [Ls [-> H]]]]]] Hev.
-    apply ev_fpuFsRead in Hev; rewrite <- (r_fs _ _ _ _ _ _ _ H); exact Hev.
-  Qed.
-
-  (* --- Commit, at the level of the impl state --- *)
-  Lemma rel_commit : forall e g S sigma,
-    RelFpuG (e :: g) S sigma -> doneE e = true -> RelFpuG g S (entrySem e sigma).
-  Proof.
-    intros e g S sigma [A [p [lp [ib [Ls [-> H]]]]]] Hd.
-    eexists _, _, _, _, _; split; [reflexivity | exact (relC_commit _ _ _ _ _ _ _ _ H Hd)].
   Qed.
 End RelFpu.

@@ -94,7 +94,7 @@ Definition FpOpDK : Kind :=
     "mode"     :: Bit 2 ;  (* sign-injection kind / comparison kind *)
     "quiet"    :: Bool ;   (* FLT / FLE signal NV only for signaling NaNs *)
     "unsigned" :: Bool ;   (* unsigned integer *)
-    "wide"     :: Bool ;   (* 64-bit integer (XLEN = 64 only) *)
+    "wide"     :: Bool ;   (* XLEN-bit integer (else a wlen-bit integer) *)
     "nx"       :: Bool     (* FROUNDNX: raise NX when inexact *)
   }.
 
@@ -210,6 +210,8 @@ Section FpCore.
    * `expOff` / `expUnpack` depend on `bm`. *)
   Variable bm : bool.
   Variable e f xlen : Z.
+  (* Width of the narrow integer conversions (RISC-V W / WU: 32); `1 <= wlen <= xlen`. *)
+  Variable wlen : Z.
   Variable ty : Kind -> Type.
 
   Local Abbreviation FB := (FpBits e f).
@@ -551,15 +553,16 @@ Section FpCore.
   Definition nvFlag (nv : Expr ty Bool) : Expr ty (Bit 5) :=
     mkFlags nv (ConstBool false) (ConstBool false) (ConstBool false) (ConstBool false).
 
-  (* Low 32 bits, sign-extended to XLEN. *)
-  Definition sext32 (v : ty (Bit xlen)) : Expr ty (Bit xlen) :=
-    Or [ And [ #v ; cst xlen (2 ^ 32 - 1) ] ;
-         ITE (bitSet v 31) (cst xlen (2 ^ xlen - 2 ^ 32)) (cst xlen 0) ].
+  (* Low `wlen` bits, sign-extended to XLEN. *)
+  Definition sextW (v : ty (Bit xlen)) : Expr ty (Bit xlen) :=
+    Or [ And [ #v ; cst xlen (2 ^ wlen - 1) ] ;
+         ITE (bitSet v (wlen - 1)) (cst xlen (2 ^ xlen - 2 ^ wlen)) (cst xlen 0) ].
 
   (* FCVT.{W,WU,L,LU}: round to an integer with the rounding mode, then saturate.
    * Valid range (after rounding): signed [-2^(W-1), 2^(W-1) - 1], unsigned [0, 2^W - 1].
    * NaN and too-large positive values give the maximum, too-large negative values the minimum;
-   * those set NV (and not NX).  32-bit results are sign-extended to XLEN. *)
+   * those set NV (and not NX).  `wlen`-bit results are sign-extended to XLEN; `W = xlen` when
+   * `is64` (wide), else `W = wlen`. *)
   Definition fpToInt (rm : ty (Bit 3)) (isSigned is64 : ty Bool) (ua : ty UK) : LetExpr ty (IntOutK xlen) :=
     LetE s       : Bool                 <- ##ua`"sign" ;
     LetE xv      : XK                   <- ##ua`"exp" ;
@@ -580,10 +583,10 @@ Section FpCore.
     LetE inexact : Bool                 <- Or [ #g ; #r ] ;
     LetE mm      : Bit (xlen + f + 4)   <- Add [ Srl (#nn) (cst (xlen + f + 4) 2) ; ITE (#inc) (cst (xlen + f + 4) 1) (cst (xlen + f + 4) 0) ] ;
     LetE posLim  : Bit (xlen + f + 4)   <- ITE (#is64)
-                                            (ITE (#isSigned) (cst (xlen + f + 4) (2 ^ 63 - 1)) (cst (xlen + f + 4) (2 ^ 64 - 1)))
-                                            (ITE (#isSigned) (cst (xlen + f + 4) (2 ^ 31 - 1)) (cst (xlen + f + 4) (2 ^ 32 - 1))) ;
+                                            (ITE (#isSigned) (cst (xlen + f + 4) (2 ^ (xlen - 1) - 1)) (cst (xlen + f + 4) (2 ^ xlen - 1)))
+                                            (ITE (#isSigned) (cst (xlen + f + 4) (2 ^ (wlen - 1) - 1)) (cst (xlen + f + 4) (2 ^ wlen - 1))) ;
     LetE negLim  : Bit (xlen + f + 4)   <- ITE (#isSigned)
-                                            (ITE (#is64) (cst (xlen + f + 4) (2 ^ 63)) (cst (xlen + f + 4) (2 ^ 31)))
+                                            (ITE (#is64) (cst (xlen + f + 4) (2 ^ (xlen - 1))) (cst (xlen + f + 4) (2 ^ (wlen - 1))))
                                             (cst (xlen + f + 4) 0) ;
     LetE inRange : Bool                 <- And [ Not (#big) ; Not (##ua`"inf") ; Not (##ua`"nan") ;
                                                  Not (Ult (ITE (#s) (#negLim) (#posLim)) (#mm)) ] ;
@@ -592,15 +595,15 @@ Section FpCore.
     LetE satNeg  : Bit xlen             <- trunc (xlen + f + 4) xlen (Neg (#negLim)) ;
     LetE sat     : Bit xlen             <- ITE (And [ #s ; Not (##ua`"nan") ]) (#satNeg) (#satPos) ;
     LetE raw     : Bit xlen             <- ITE (##ua`"zero") (cst xlen 0) (ITE (#inRange) (#val) (#sat)) ;
-    LetE res     : Bit xlen             <- ITE (#is64) (#raw) (sext32 raw) ;
+    LetE res     : Bit xlen             <- ITE (#is64) (#raw) (sextW raw) ;
     LetE nv      : Bool                 <- And [ Not (##ua`"zero") ; Not (#inRange) ] ;
     LetE nx      : Bool                 <- And [ Not (##ua`"zero") ; #inRange ; #inexact ] ;
     RetE (mkIntOut (#res) (mkFlags (#nv) (ConstBool false) (ConstBool false) (ConstBool false) (#nx))).
 
-  (* FCVT.fmt.{W,WU,L,LU}: the low 32 bits (or all 64) of `x`, signed or unsigned, rounded. *)
+  (* FCVT.fmt.{W,WU,L,LU}: the low `wlen` bits (or all `xlen`) of `x`, signed or unsigned, rounded. *)
   Definition intToFp (rm : ty (Bit 3)) (isSigned is64 : ty Bool) (x : ty (Bit xlen)) : LetExpr ty OK :=
-    LetE mask : Bit xlen           <- ITE (#is64) (cst xlen (-1)) (cst xlen (2 ^ 32 - 1)) ;
-    LetE sb   : Bool               <- ITE (#is64) (bitSet x (xlen - 1)) (bitSet x 31) ;
+    LetE mask : Bit xlen           <- ITE (#is64) (cst xlen (-1)) (cst xlen (2 ^ wlen - 1)) ;
+    LetE sb   : Bool               <- ITE (#is64) (bitSet x (xlen - 1)) (bitSet x (wlen - 1)) ;
     LetE neg  : Bool               <- And [ #isSigned ; #sb ] ;
     LetE mag  : Bit xlen           <- And [ ITE (#neg) (Neg (#x)) (#x) ; #mask ] ;
     LetE wsig : Bit (xlen + f + 3) <- Sll (zext xlen (xlen + f + 3) (#mag)) (cst (xlen + f + 3) (f + 3)) ;

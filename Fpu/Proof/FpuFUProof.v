@@ -80,7 +80,7 @@ Proof. intros A B l xs q H; destruct l; [destruct H | exact H]. Qed.
 
 Section FUProof.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
 
@@ -92,7 +92,7 @@ Section FUProof.
   (* The spec output for an input: destination and result. *)
   Definition fuSpec (x : type InK) : type OutK :=
     (x @% "pkt" @% "rd" ,,
-     (execResOf true F xlen narrow (x @% "pkt") (x @% "rm") (x @% "a") (x @% "b") (x @% "c") (x @% "x") ,, tt)).
+     (execResOf true F xlen wlen narrow (x @% "pkt") (x @% "rm") (x @% "a") (x @% "b") (x @% "c") (x @% "x") ,, tt)).
 
   Definition acceptsF (L : FU) (pkt : type PktK) : bool := evalExpr (fuAccepts _ _ _ L type pkt).
 
@@ -156,7 +156,7 @@ Section FUProof.
 
   (* The result of an ordinary (non-narrow) op. *)
   Definition mainV (op : type (FpuOpK narrow)) (rm : bits 3) (a b c : bits flen) (x : bits xlen) : type (FpuResK F xlen) :=
-    let o := evalLetExpr (fpuCompute true (fmtE F) (fmtF F) xlen type (reqV (decV op) rm a b c x)) in
+    let o := evalLetExpr (fpuCompute true (fmtE F) (fmtF F) xlen wlen type (reqV (decV op) rm a b c x)) in
     (o @% "res" ,, (o @% "xres" ,, (o @% "flags" ,, (negb (opWritesXV op) ,, tt)))).
 
   Lemma fuSpec_main : forall (x : type InK),
@@ -285,8 +285,8 @@ Section FUProof.
 
   Lemma pipeFU_spec : forall ms bps (x : type InK),
     PipeCfgOk ms bps ->
-    acceptsF (pipeFU F xlen narrow ms bps) (x @% "pkt") = true ->
-    evalLetExpr (plFinish F xlen ms bps type
+    acceptsF (pipeFU F xlen wlen narrow ms bps) (x @% "pkt") = true ->
+    evalLetExpr (plFinish F xlen wlen ms bps type
                    (StageValAt (plInit F xlen narrow ms bps) (plStep F xlen ms bps) ms x)) =
     fuSpec x.
   Proof.
@@ -300,7 +300,7 @@ Section FUProof.
     rewrite (fuSpec_main x Hn); unfold mainV.
     unfold plFinish, plInit, plStep; rewrite SV_withMeta, withMetaFinish_eval.
     unfold resId; cbn zeta.
-    rewrite (Pipe_StageValAt_spec (fmtE F) (fmtF F) xlen ms bps Hmw Hf Hfit).
+    rewrite (Pipe_StageValAt_spec (fmtE F) (fmtF F) xlen wlen ms bps Hmw Hf Hfit).
     rewrite fpuCompute_dispatch.
     rewrite isDiv_tag in Hdiv; rewrite isSqrt_tag in Hsqrt.
     match goal with |- context [?r @% "op" @% "div"] =>
@@ -395,7 +395,7 @@ Section FUProof.
 
   Section PipeFUOk.
     Variable ms bps : nat.
-    Local Abbreviation L := (pipeFU F xlen narrow ms bps).
+    Local Abbreviation L := (pipeFU F xlen wlen narrow ms bps).
     Local Abbreviation SK := (WithMetaK (PipeStateK (fmtE F) (fmtF F) xlen (ms * bps))).
 
     Definition pipeFUView : FUView L := mkFUView L
@@ -571,7 +571,7 @@ Section FUProof.
     [ mkFUP _ (pipeFUView ms bps) ; mkFUP _ divFUView ; mkFUP _ sqrtFUView ]
     ++ (match narrow with nil => [] | _ => [ mkFUP _ cvtFUView ] end).
 
-  Lemma fpuFUsP_fus : forall ms bps, map fuL (fpuFUsP ms bps) = fpuFUs F xlen narrow ms bps.
+  Lemma fpuFUsP_fus : forall ms bps, map fuL (fpuFUsP ms bps) = fpuFUs F xlen wlen narrow ms bps.
   Proof. intros; unfold fpuFUsP, fpuFUs; rewrite map_app, map_optTail; reflexivity. Qed.
 
   Lemma fpuFUsP_ok : forall ms bps, PipeCfgOk ms bps ->

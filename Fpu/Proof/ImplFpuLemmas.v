@@ -93,7 +93,7 @@ End CtlLemmas.
 
 Section Lift.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
   Variable ls : list (FU F xlen narrow).
@@ -144,7 +144,7 @@ End ArchPairs.
 
 Section FUs.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
 
@@ -153,7 +153,7 @@ Section FUs.
   Local Abbreviation fuL := (fuL F xlen narrow).
   Local Abbreviation fuV := (fuV F xlen narrow).
 
-  Definition FUOkP (p : FUP) : Prop := FUOk F xlen narrow (fuL p) (fuV p).
+  Definition FUOkP (p : FUP) : Prop := FUOk F xlen wlen narrow (fuL p) (fuV p).
 
   Fixpoint FUsHold (lps : list FUP) :
     TreeState ElemState (fusTree F xlen narrow (map fuL lps)) -> (nat -> list (type InK)) -> Prop :=
@@ -200,13 +200,13 @@ Section FUs.
       cbn [tryEnqFUs map fusTree evalActionPropGen] in H.
       destruct (evalExpr (fuAccepts F xlen narrow (fuL p) type pkt)) eqn:Hacc.
       + rewrite evalActionPropGen_liftAction_child0Path in H.
-        destruct (lo_canEnq _ _ _ _ _ Hp _ _ _ H) as [b [H1 Hb]].
+        destruct (lo_canEnq _ _ _ _ _ _ Hp _ _ _ H) as [b [H1 Hb]].
         cbn [evalActionPropGen] in H1.
         destruct (andb go b) eqn:Hgb; cbn [evalExpr fold_left map evalAndBinary evalBinary KindCustomInd InvDefault andb] in H1;
           rewrite Hgb in H1; cbn [evalActionPropGen] in H1.
         * apply andb_true_iff in Hgb; destruct Hgb as [-> ->].
           rewrite evalActionPropGen_liftAction_child0Path in H1.
-          destruct (lo_enq _ _ _ _ _ Hp _ _ _ _ _ Hl (Hb eq_refl) ltac:(rewrite Hpkt; exact Hacc) H1) as [sl' [H2 Hl']].
+          destruct (lo_enq _ _ _ _ _ _ Hp _ _ _ _ _ Hl (Hb eq_refl) ltac:(rewrite Hpkt; exact Hacc) H1) as [sl' [H2 Hl']].
           cbn [evalActionPropGen] in H2.
           eexists _, true; split; [exact H2 | split; [discriminate |]]; intros _; split; [reflexivity |].
           exists 0%nat; split; [cbn [route]; unfold acceptsF; rewrite Hacc; reflexivity |].
@@ -240,8 +240,8 @@ Section FUs.
     exists s' (r : type (Option ResK)), Q s' r /\
       (r @% "valid" = false -> s' = s) /\
       (r @% "valid" = true -> exists i x rest, f i = x :: rest /\
-         r @% "data" = (fuSpec F xlen narrow x) @% "res" /\
-         (fuSpec F xlen narrow x) @% "res" @% "writesF" = false /\
+         r @% "data" = (fuSpec F xlen wlen narrow x) @% "res" /\
+         (fuSpec F xlen wlen narrow x) @% "res" @% "writesF" = false /\
          FUsHold lps s' (setAt f i rest)).
   Proof.
     induction lps as [| p rest IH]; intros env s f Q Hok Hh H.
@@ -251,7 +251,7 @@ Section FUs.
       destruct s as [sl [sr []]]; destruct Hh as [Hl Hr].
       cbn [intRespFUs map fusTree] in H; apply ev_LetAction in H.
       rewrite (@evalActionPropGen_liftAction_child0Path "fus" _ [fusTree F xlen narrow (map fuL rest)] _ env) in H.
-      destruct (lo_first _ _ _ _ _ Hp _ _ _ _ Hl H) as [o [H1 Ho]].
+      destruct (lo_first _ _ _ _ _ _ Hp _ _ _ _ Hl H) as [o [H1 Ho]].
       cbv beta in H1; apply ev_IfElse_fwd in H1.
       destruct H1 as [[Hc H1] | [Hc H1]].
       + rewrite evalExpr_And2_Not in Hc.
@@ -261,7 +261,7 @@ Section FUs.
         apply ev_LetAction in H1.
         rewrite (@evalActionPropGen_liftAction_child0Path "fus" _ [fusTree F xlen narrow (map fuL rest)] _ env) in H1.
         rewrite Hx in Hl.
-        destruct (lo_deq _ _ _ _ _ Hp _ _ _ _ _ Hl Hready H1) as [sl' [H2 Hl']].
+        destruct (lo_deq _ _ _ _ _ _ Hp _ _ _ _ _ Hl Hready H1) as [sl' [H2 Hl']].
         cbn [evalActionPropGen] in H2.
         eexists _, _; split; [exact H2 | split; [cbn; discriminate |]]; intros _.
         exists 0%nat, x, xs; split; [exact Hx | split; [| split]].
@@ -354,20 +354,20 @@ Section FUs.
   Lemma Retv_zero : forall (Q : St -> type (Bit 0) -> Prop) S (z : type (Bit 0)), Q S z -> Q S Zmod.zero.
   Proof. intros Q S z H; rewrite (bits0_eq Zmod.zero z); exact H. Qed.
 
-  Lemma wbRule_fwd : forall L V (Hok : FUOk F xlen narrow L V) lf get set (Hl : LensFwd lf get set)
+  Lemma wbRule_fwd : forall L V (Hok : FUOk F xlen wlen narrow L V) lf get set (Hl : LensFwd lf get set)
     env S xs Q,
     lvHolds F xlen narrow L V (get S) xs ->
     evalActionPropGen env (wbRule F xlen narrow lsAll type L lf) S Q ->
     exists S', Q S' Zmod.zero /\
       (S' = S \/
-       exists (o : type (Option OutK)) x rest t', xs = x :: rest /\ o @% "data" = fuSpec F xlen narrow x /\
-         (fuSpec F xlen narrow x) @% "res" @% "writesF" = true /\
+       exists (o : type (Option OutK)) x rest t', xs = x :: rest /\ o @% "data" = fuSpec F xlen wlen narrow x /\
+         (fuSpec F xlen wlen narrow x) @% "res" @% "writesF" = true /\
          lvHolds F xlen narrow L V t' rest /\ S' = set (wbUpdO S o) t').
   Proof.
     intros L V Hok lf get set Hl env S xs Q Hh H.
     unfold wbRule in H; apply ev_LetAction in H.
     destruct (lens_ev _ _ _ Hl _ _ _ _ _ H) as [env1 H0].
-    destruct (lo_first _ _ _ _ _ Hok _ _ _ _ Hh H0) as [o [H1 Ho]].
+    destruct (lo_first _ _ _ _ _ _ Hok _ _ _ _ Hh H0) as [o [H1 Ho]].
     rewrite (lens_set_get _ _ _ Hl) in H1; cbv beta in H1; apply ev_IfElse_fwd in H1.
     destruct H1 as [[Hc H1] | [Hc H1]].
     - rewrite evalExpr_And2 in Hc.
@@ -396,7 +396,7 @@ Section FUs.
         assert (Hg : get S1 = get S0) by (rewrite <- (lens_get_wb _ _ _ Hl S0 o); reflexivity);
         rewrite Hg in H2 end.
       unfold S0 in H2 |- *; rewrite Hx in Hh.
-      destruct (lo_deq _ _ _ _ _ Hok _ _ _ _ _ Hh Hready H2) as [t' [H3 Ht']].
+      destruct (lo_deq _ _ _ _ _ _ Hok _ _ _ _ _ Hh Hready H2) as [t' [H3 Ht']].
       cbn [evalActionPropGen] in H3.
       eexists; split; [eapply Retv_zero; exact H3 |].
       right; exists o, x, xs', t'; split; [exact Hx | split; [exact Hd | split; [rewrite <- Hd; exact Hw | split; [exact Ht' |]]]].
@@ -415,8 +415,8 @@ Section FUs.
       exists S', Q S' Zmod.zero /\
         ((exists t', S' = set X t' /\ FUsHold lps t' g) \/
          (exists (o : type (Option OutK)) i x rest t', g i = x :: rest /\
-            o @% "data" = fuSpec F xlen narrow x /\
-            (fuSpec F xlen narrow x) @% "res" @% "writesF" = true /\
+            o @% "data" = fuSpec F xlen wlen narrow x /\
+            (fuSpec F xlen wlen narrow x) @% "res" @% "writesF" = true /\
             S' = set (wbUpdO X o) t' /\ FUsHold lps t' (setAt g i rest))).
   Proof.
     induction lps as [| p rest IH]; intros lf get set Hl Hok env r X g Q Hh Hin H; [destruct Hin |].
@@ -438,7 +438,7 @@ Section FUs.
       + (* fu-internal rule of fu 0 *)
         apply in_map_iff in Hin; destruct Hin as [r' [<- Hin]].
         destruct (lens_ev _ _ _ Hl0 _ _ _ _ _ H) as [env' H'].
-        destruct (lo_rules _ _ _ _ _ Hp _ _ _ _ _ Hin H0 H') as [t' [HQ Ht]].
+        destruct (lo_rules _ _ _ _ _ _ Hp _ _ _ _ _ Hin H0 H') as [t' [HQ Ht]].
         eexists; split; [exact HQ |]; left.
         exists (t' ,, (get X).(Snd)); split; [reflexivity |].
         cbn [FUsHold Fst Snd]; split; [exact Ht | exact H1].
@@ -463,8 +463,8 @@ Section FUs.
       exists S', Q S' Zmod.zero /\
         ((exists t', S' = (X.(Fst) ,, (X.(Snd).(Fst) ,, (t' ,, tt))) /\ FUsHold lpsAll t' g) \/
          (exists (o : type (Option OutK)) i x rest t', g i = x :: rest /\
-            o @% "data" = fuSpec F xlen narrow x /\
-            (fuSpec F xlen narrow x) @% "res" @% "writesF" = true /\
+            o @% "data" = fuSpec F xlen wlen narrow x /\
+            (fuSpec F xlen wlen narrow x) @% "res" @% "writesF" = true /\
             S' = ((wbUpdO X o).(Fst) ,, ((wbUpdO X o).(Snd).(Fst) ,, (t' ,, tt))) /\
             FUsHold lpsAll t' (setAt g i rest))).
   Proof.
@@ -513,7 +513,7 @@ Proof. intros w e j; exact (bitOf_clr w (evalExpr e) j). Qed.
 
 Section Interface.
   Variable F : FpFmt.
-  Variable xlen : Z.
+  Variable xlen wlen : Z.
   Local Abbreviation flen := (fmtW F).
   Variable narrow : list FpFmt.
   Variable lps : list (FUP F xlen narrow).
@@ -536,7 +536,7 @@ Section Interface.
     evalExpr (bitClrE type (Var type (Bit RegVecSz) w) (Var type (Bit FprIdxSz) r)).
 
   Lemma fpuIssue_fwd : forall (env : Env IT) A p lp ib Ls pkt x Q f,
-    Forall (FUOkP F xlen narrow) lps -> FUsHold F xlen narrow lps Ls f ->
+    Forall (FUOkP F xlen wlen narrow) lps -> FUsHold F xlen narrow lps Ls f ->
     evalActionPropGen env (fpuIssue F xlen narrow ls type pkt x) (mkS A (mkCtl p lp ib) Ls) Q ->
     exists S' (ok : bool), Q S' ok /\
       (ok = false -> S' = mkS A (mkCtl p lp ib) Ls) /\
@@ -559,7 +559,7 @@ Section Interface.
     do 3 (rewrite (ev_liftArch _ _ _ _ _ (fun s => s) (fun s => (archFpr flen s (evalExpr (_ : Expr type (Bit FprIdxSz))) : type (Bit flen)))
               (fun env' s P => evalActionPropGen_archReadFpr flen _ s P)) in H; cbn beta in H).
     apply ev_liftFUs in H; destruct H as [env1 H].
-    destruct (tryEnqFUs_fwd F xlen narrow lps env1 Ls f _ pkt (inpOf A pkt x) _ Hok Hh eq_refl H)
+    destruct (tryEnqFUs_fwd F xlen wlen narrow lps env1 Ls f _ pkt (inpOf A pkt x) _ Hok Hh eq_refl H)
       as [Ls' [b [H1 [Hf Ht]]]].
     cbv beta in H1.
     destruct b.
@@ -593,21 +593,21 @@ Section Interface.
   Qed.
 
   Lemma fpuIntResp_fwd : forall (env : Env IT) A p lp ib Ls Q f,
-    Forall (FUOkP F xlen narrow) lps -> FUsHold F xlen narrow lps Ls f ->
+    Forall (FUOkP F xlen wlen narrow) lps -> FUsHold F xlen narrow lps Ls f ->
     evalActionPropGen env (fpuIntResp F xlen narrow ls type) (mkS A (mkCtl p lp ib) Ls) Q ->
     exists S' (r : type (Option (Bit xlen))), Q S' r /\
       (r @% "valid" = false -> S' = mkS A (mkCtl p lp ib) Ls) /\
       (r @% "valid" = true -> exists i x rest Ls', f i = x :: rest /\
-         (fuSpec F xlen narrow x) @% "res" @% "writesF" = false /\
-         r @% "data" = (fuSpec F xlen narrow x) @% "res" @% "xres" /\
+         (fuSpec F xlen wlen narrow x) @% "res" @% "writesF" = false /\
+         r @% "data" = (fuSpec F xlen wlen narrow x) @% "res" @% "xres" /\
          FUsHold F xlen narrow lps Ls' (setAt F xlen narrow f i rest) /\
-         S' = mkS (archSetFflags flen A (Zmod.or (archFflags flen A) ((fuSpec F xlen narrow x) @% "res" @% "flags")))
+         S' = mkS (archSetFflags flen A (Zmod.or (archFflags flen A) ((fuSpec F xlen wlen narrow x) @% "res" @% "flags")))
                   (mkCtl p lp false) Ls').
   Proof.
     intros env A p lp ib Ls Q f Hok Hh H.
     unfold fpuIntResp in H; cbn [evalActionPropGen] in H.
     apply ev_liftFUs in H; destruct H as [env1 H].
-    destruct (intRespFUs_fwd F xlen narrow lps env1 Ls f _ Hok Hh H) as [Ls' [r [H1 [Hf Ht]]]].
+    destruct (intRespFUs_fwd F xlen wlen narrow lps env1 Ls f _ Hok Hh H) as [Ls' [r [H1 [Hf Ht]]]].
     cbv beta in H1; apply if_fwd in H1; destruct H1 as [[Hv H1] | [Hv H1]].
     - change (r @% "valid" = true) in Hv.
       destruct (Ht Hv) as [i [x [xs [Hx [Hd [Hw Hl']]]]]].

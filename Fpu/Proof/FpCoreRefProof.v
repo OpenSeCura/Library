@@ -37,7 +37,7 @@ Local Open Scope Z_scope.
 Local Open Scope string_scope.
 
 Section Equiv.
-  Variable e f xlen : Z.
+  Variable e f xlen wlen : Z.
   Hypothesis He : 2 <= e.
   Hypothesis Hf : 2 <= f.
 
@@ -382,7 +382,7 @@ Section Equiv.
   Hypothesis Hx1 : xlen + 4 <= 7 * 2 ^ (e - 1).
 
   Lemma fpToInt_eq : forall rm sg w ua, URng ua ->
-    evalLetExpr (fpToInt true e f xlen type rm sg w (ukS ua)) = evalLetExpr (fpToInt false e f xlen type rm sg w ua).
+    evalLetExpr (fpToInt true e f xlen wlen type rm sg w (ukS ua)) = evalLetExpr (fpToInt false e f xlen wlen type rm sg w ua).
   Proof.
     intros rm sg w ua Ha; unfold fpToInt; cbn [evalLetExpr].
     rd_exp.
@@ -392,7 +392,7 @@ Section Equiv.
   Qed.
 
   Lemma intToFp_eq : forall rm sg w x,
-    evalLetExpr (intToFp true e f xlen type rm sg w x) = evalLetExpr (intToFp false e f xlen type rm sg w x).
+    evalLetExpr (intToFp true e f xlen wlen type rm sg w x) = evalLetExpr (intToFp false e f xlen wlen type rm sg w x).
   Proof.
     intros rm sg w x; unfold intToFp; cbn [evalLetExpr].
     nr_step ltac:(apply cst_sh).
@@ -667,7 +667,7 @@ Section Equiv.
   Proof. intros; unfold pipeInfoOf; cbn [evalLetExpr]; rewrite !fpUnpack_shift; exact eq_refl. Qed.
 
   Lemma pipeFinishCore_eq : forall info prod, URng (pua info) -> URng (pub info) -> URng (puc info) ->
-    evalLetExpr (pipeFinishCore true e f xlen type (piS info) prod) = evalLetExpr (pipeFinishCore false e f xlen type info prod).
+    evalLetExpr (pipeFinishCore true e f xlen wlen type (piS info) prod) = evalLetExpr (pipeFinishCore false e f xlen wlen type info prod).
   Proof.
     intros info prod Ha Hb Hc; unfold pipeFinishCore; cbn [evalLetExpr].
     match goal with |- context [addCore true e f type ?rm ?a ?b ?ut ?vt] =>
@@ -684,8 +684,8 @@ Section Equiv.
     match goal with |- context [minMax e f type _ _ _ _ ?u ?v] =>
       tryif constr_eq ut u then fail else
       (change ut with (ukS u); change vt with (ukS v); rewrite (minMax_ukS im np a b u v)) end end.
-    match goal with |- context [fpToInt true e f xlen type ?rm ?sg ?w ?ut] =>
-    match goal with |- context [fpToInt false e f xlen type _ _ _ ?u] =>
+    match goal with |- context [fpToInt true e f xlen wlen type ?rm ?sg ?w ?ut] =>
+    match goal with |- context [fpToInt false e f xlen wlen type _ _ _ ?u] =>
       change ut with (ukS u); rewrite (fpToInt_eq rm sg w u Ha) end end.
     rewrite intToFp_eq.
     match goal with |- context [fpCompare e f xlen type ?k ?q ?a ?b ?ut ?vt] =>
@@ -702,7 +702,7 @@ Section Equiv.
   Qed.
 
   Lemma pipeSpec_eq : forall req,
-    evalLetExpr (pipeSpec true e f xlen type req) = evalLetExpr (pipeSpec false e f xlen type req).
+    evalLetExpr (pipeSpec true e f xlen wlen type req) = evalLetExpr (pipeSpec false e f xlen wlen type req).
   Proof.
     intros req; unfold pipeSpec; cbn [evalLetExpr]; rewrite pipeInfoOf_eq.
     rewrite pipeFinishCore_eq by apply unpack_URng.
@@ -730,7 +730,7 @@ Section Equiv.
   Qed.
 
   Theorem fpuCompute_bm_equiv : forall req,
-    evalLetExpr (fpuCompute false e f xlen type req) = evalLetExpr (fpuCompute true e f xlen type req).
+    evalLetExpr (fpuCompute false e f xlen wlen type req) = evalLetExpr (fpuCompute true e f xlen wlen type req).
   Proof.
     intros req; unfold fpuCompute; cbn [evalLetExpr]; rewrite pipeSpec_eq, divSpec_eq, sqrtSpec_eq; exact eq_refl.
   Qed.
@@ -934,12 +934,12 @@ Proof.
   split; [exact He | lia].
 Qed.
 
-Theorem fpuComputeRef_equiv : forall e f xlen, 2 <= f -> f + 1 < 2 ^ (e - 1) ->
+Theorem fpuComputeRef_equiv : forall e f xlen wlen, 2 <= f -> f + 1 < 2 ^ (e - 1) ->
   0 <= xlen -> xlen + 4 <= 7 * 2 ^ (e - 1) ->
-  forall req, evalLetExpr (fpuComputeRef e f xlen type req) = evalLetExpr (fpuCompute true e f xlen type req).
+  forall req, evalLetExpr (fpuComputeRef e f xlen wlen type req) = evalLetExpr (fpuCompute true e f xlen wlen type req).
 Proof.
-  intros e f xlen Hf Hp Hx0 Hx1; destruct (fmt_cond e f Hf Hp) as [He Hfe].
-  exact (fpuCompute_bm_equiv e f xlen He Hf Hfe Hx0 Hx1).
+  intros e f xlen wlen Hf Hp Hx0 Hx1; destruct (fmt_cond e f Hf Hp) as [He Hfe].
+  exact (fpuCompute_bm_equiv e f xlen wlen He Hf Hfe Hx0 Hx1).
 Qed.
 
 Theorem cvtFFRef_equiv : forall e1 f1 e2 f2,
