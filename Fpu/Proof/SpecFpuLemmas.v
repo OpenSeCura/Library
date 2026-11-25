@@ -173,6 +173,46 @@ Section SpecLemmas.
       rewrite evp_LetAction, evalActionPropGen_archWriteFs; cbv beta.
       rewrite evp_Return, evalExpr_Or2; cbn [evalExpr]; apply iff_refl.
   Qed.
+
+  (* ---------------------------------------------------------------------------
+   * 2b. A REGISTER WRITE COMMUTES WITH AN OPERATION THAT DOES NOT TOUCH THE REGISTER
+   *
+   * For a parent proof that applies a write (e.g. a load's fill) after operations that come
+   * later in program order: an operation whose sources are not `r`, and which does not write
+   * `r`, computes the same result and commutes with the write of `r`.
+   * --------------------------------------------------------------------------- *)
+
+  Lemma archFrm_setFpr : forall (s : ArchSt flen) r v, archFrm flen (archSetFpr flen s r v) = archFrm flen s.
+  Proof. reflexivity. Qed.
+
+  Lemma archFflags_setFpr : forall (s : ArchSt flen) r v, archFflags flen (archSetFpr flen s r v) = archFflags flen s.
+  Proof. reflexivity. Qed.
+
+  (* The result does not depend on a register that is not a source. *)
+  Lemma execRes_setFpr : forall (s : ArchSt flen) pkt x r v,
+    pktRs1 pkt <> r -> pktRs2 pkt <> r -> pktRs3 pkt <> r ->
+    execRes bm F xlen wlen narrow (archSetFpr flen s r v) pkt x = execRes bm F xlen wlen narrow s pkt x.
+  Proof.
+    intros s pkt x r v H1 H2 H3; unfold execRes.
+    rewrite archFrm_setFpr, !archFpr_setFpr_other by assumption; reflexivity.
+  Qed.
+
+  Lemma execSem_setFpr_comm : forall (s : ArchSt flen) pkt x r v,
+    pktRs1 pkt <> r -> pktRs2 pkt <> r -> pktRs3 pkt <> r ->
+    ((execRes bm F xlen wlen narrow s pkt x) @% "writesF" = true -> pktRd pkt <> r) ->
+    execSem bm F xlen wlen narrow (archSetFpr flen s r v) pkt x =
+    archSetFpr flen (execSem bm F xlen wlen narrow s pkt x) r v.
+  Proof.
+    intros s pkt x r v H1 H2 H3 Hd; unfold execSem.
+    rewrite (execRes_setFpr s pkt x r v H1 H2 H3).
+    set (res := execRes bm F xlen wlen narrow s pkt x) in *; clearbody res.
+    unfold applyRes; rewrite archFflags_setFpr.
+    destruct (res @% "writesF").
+    - rewrite (archSetFpr_comm flen s r (pktRd pkt) v (res @% "res"))
+        by (intros E; exact (Hd eq_refl (eq_sym E))).
+      reflexivity.
+    - reflexivity.
+  Qed.
 End SpecLemmas.
 
 (* ---------------------------------------------------------------------------
