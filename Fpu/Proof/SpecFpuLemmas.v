@@ -197,19 +197,47 @@ Section SpecLemmas.
     rewrite archFrm_setFpr, !archFpr_setFpr_other by assumption; reflexivity.
   Qed.
 
+  (* An op whose result is written to an f register is not an integer-result op.  (The converse
+   * fails only for a narrow conversion whose `nidx` names no entry of `narrow`: it writes
+   * nothing.) *)
+  Lemma execResOf_writesF : forall pkt rm (a b c : bits flen) (x : bits xlen),
+    (execResOf bm F xlen wlen narrow pkt rm a b c x) @% "writesF" = true ->
+    evalExpr (opWritesXE narrow type (pkt @% "op")) = false.
+  Proof.
+    intros pkt rm a b c x H.
+    destruct (evalExpr (isNarrowE narrow type (pkt @% "op"))) eqn:Hn.
+    - (* A narrow conversion: its tag is not that of an integer-result family. *)
+      revert Hn; generalize (pkt @% "op"); intros [d t] Hn.
+      change (Zmod.eqb t (Zmod.of_Z _ 12) = true) in Hn.
+      apply Zmod.eqb_eq in Hn; subst t; reflexivity.
+    - (* An ordinary op: `writesF` is the negation of the test. *)
+      assert (E : (execResOf bm F xlen wlen narrow pkt rm a b c x) @% "writesF" =
+                  negb (evalExpr (opWritesXE narrow type (pkt @% "op")))).
+      { unfold execResOf, execCompute, mainRes; cbn [evalLetExpr]; cbn [evalExpr].
+        match goal with |- context [evalExpr (isNarrowE narrow type ?o)] =>
+          replace (evalExpr (isNarrowE narrow type o)) with false by (symmetry; exact Hn) end.
+        reflexivity. }
+      rewrite E in H; destruct (evalExpr (opWritesXE narrow type (pkt @% "op"))); [discriminate H | reflexivity].
+  Qed.
+
+  (* The destination premise is on the packet: if the op is not an integer-result op (`wfOf pkt`
+   * in the impl proofs), its `rd` is not `r`. *)
   Lemma execSem_setFpr_comm : forall (s : ArchSt flen) pkt x r v,
     pktRs1 pkt <> r -> pktRs2 pkt <> r -> pktRs3 pkt <> r ->
-    ((execRes bm F xlen wlen narrow s pkt x) @% "writesF" = true -> pktRd pkt <> r) ->
+    (evalExpr (opWritesXE narrow type (pkt @% "op")) = false -> pktRd pkt <> r) ->
     execSem bm F xlen wlen narrow (archSetFpr flen s r v) pkt x =
     archSetFpr flen (execSem bm F xlen wlen narrow s pkt x) r v.
   Proof.
     intros s pkt x r v H1 H2 H3 Hd; unfold execSem.
+    assert (Hd' : (execRes bm F xlen wlen narrow s pkt x) @% "writesF" = true -> pktRd pkt <> r)
+      by (intros Hw; exact (Hd (execResOf_writesF _ _ _ _ _ _ Hw))).
+    clear Hd.
     rewrite (execRes_setFpr s pkt x r v H1 H2 H3).
     set (res := execRes bm F xlen wlen narrow s pkt x) in *; clearbody res.
     unfold applyRes; rewrite archFflags_setFpr.
     destruct (res @% "writesF").
     - rewrite (archSetFpr_comm flen s r (pktRd pkt) v (res @% "res"))
-        by (intros E; exact (Hd eq_refl (eq_sym E))).
+        by (intros E; exact (Hd' eq_refl (eq_sym E))).
       reflexivity.
     - reflexivity.
   Qed.
